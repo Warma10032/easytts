@@ -86,7 +86,7 @@ uv sync
 uv run python app.py
 ```
 
-服务器默认运行在 `http://127.0.0.1:10032`
+服务器默认运行在 `http://localhost:10032`
 
 ### 启动GUI客户端
 
@@ -111,9 +111,6 @@ uv run python main.py
     └── speaker_identification/  # 说话人识别结果缓存
 ```
 
-## 许可证
-
-Apache-2.0
 
 ## 贡献
 
@@ -124,3 +121,8 @@ Apache-2.0
 - [Edge-TTS](https://github.com/rany2/edge-tts) - 提供Edge TTS服务支持
 - [chinese-roberta-wwm-ext-large](https://github.com/ymcui/Chinese-BERT-wwm) - 中文预训练BERT模型
 - [yudiandoris/csi: End-to-End Chinese Speaker Identification](https://github.com/yudiandoris/csi) - 端到端引文说话人识别模块
+
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Warma10032/easytts&type=Date)](https://www.star-history.com/#Warma10032/easytts&Date)
