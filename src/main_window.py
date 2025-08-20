@@ -1,8 +1,11 @@
 from PyQt6.QtWidgets import (QMainWindow, QMessageBox, QFileDialog, 
                              QListWidgetItem, QAbstractItemView, QTableWidgetItem,
-                             QMenu, QInputDialog, QLineEdit)
+                             QMenu, QInputDialog, QLineEdit, QVBoxLayout)
 from PyQt6.QtCore import Qt, QUrl, QThreadPool
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineUrlRequestInterceptor, QWebEnginePage
+import yaml
 
 from src.ui.Ui_main_window import Ui_MainWindow
 
@@ -27,8 +30,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.cache_text_path = os.path.join(self.project_root, 'cache', 'text')
         self.cache_audio_path = os.path.join(self.project_root, 'cache', 'audio')
         self.cache_identification_path = os.path.join(self.project_root, 'cache', 'speaker_identification')
-
         self.cache_file_path = None
+        
+        # 加载配置文件
+        self.config_file = os.path.join(self.project_root, 'config.yml')
+        os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+        self.load_config()
+        
         
         # 添加线程池管理
         self.thread_pool = QThreadPool()
@@ -42,6 +50,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.setup_connections()
         self.setup_page1_connections()
         self.setup_page2_connections()
+        self.setup_page3_connections()
         
         # 初始化其他设置
         self.init_ui()
@@ -70,7 +79,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             
             # 尝试关闭后端服务
             try:
-                requests.post('http://127.0.0.1:10032/api/shutdown')
+                requests.post(self.backend + '/api/shutdown')
             except:
                 pass
                 
@@ -92,6 +101,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # 页面切换按钮
         self.pageButton1.clicked.connect(lambda: self.pageStackedWidget.setCurrentIndex(0))
         self.pageButton2.clicked.connect(lambda: self.pageStackedWidget.setCurrentIndex(1))
+        self.pageButton3.clicked.connect(lambda: self.pageStackedWidget.setCurrentIndex(2))
         
     '''------ Page1 ------'''
     def setup_page1_connections(self):
@@ -110,12 +120,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         voice_id = self.ttsSet.voice_mapping[voice_name]
         config = {"voice": voice_id}
         # 创建工作线程
-        self.worker = TTSWorker(text, service, config)
-        self.worker.finished.connect(self.handle_tts_result)
-        self.worker.error.connect(self.handle_tts_error)
+        self.worker = TTSWorker(self.backend, text, service, config)
+        self.worker.finished.connect(self._handle_tts_result)
+        self.worker.error.connect(self._handle_tts_error)
         self.worker.start()
         
-    def handle_tts_result(self, result):
+    def _handle_tts_result(self, result):
         if result['success']:
             # 获取音频URL
             audio_url = result['audio_url']
@@ -125,7 +135,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             print(f"生成失败：{result['error']}")
             
-    def handle_tts_error(self, error):
+    def _handle_tts_error(self, error):
         print(f"生成错误：{error}")
         
     '''------ Page2 ------'''
@@ -173,8 +183,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     f.write(text)
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"打开文件时出错: {str(e)}")
-
-            
+          
     def save_file(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "保存文件", "", "文本文件 (*.txt);;所有文件 (*.*)")
         if file_path:
@@ -196,6 +205,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         font = self.fileTextEdit.font()
         font.setPointSize(size)
         self.fileTextEdit.setFont(font)
+        
     def replace_text(self):
         old_text = self.replaceEdit1.text()
         new_text = self.replaceEdit2.text()
@@ -249,7 +259,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         
         try:
             # 访问api/split-sentences
-            response = requests.post('http://localhost:10032/api/split-sentences', json={'text_dir': self.cache_file_path, 'split_rule': self.splitRuleComboBox.currentText()})
+            response = requests.post(self.backend +'/api/split-sentences', json={'text_dir': self.cache_file_path, 'split_rule': self.splitRuleComboBox.currentText()})
             
             if not response.ok:
                 QMessageBox.critical(self, "错误", f"服务器响应错误: {response.status_code}")
@@ -315,17 +325,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             return
 
         # 创建并启动工作线程
-        self.worker = IdentifySpeakerWorker(self.book_base_name, 
+        self.worker = IdentifySpeakerWorker(self.backend,
+                                        self.book_base_name, 
                                         self.preContextSpinBox.value(),
                                         self.postContextSpinBox.value())
-        self.worker.finished.connect(self.handle_identify_speaker_result)
-        self.worker.error.connect(self.handle_identify_speaker_error)
+        self.worker.finished.connect(self._handle_identify_speaker_result)
+        self.worker.error.connect(self._handle_identify_speaker_error)
         self.worker.progress.connect(self.progress_window.update_progress) 
         self.worker.start()
         
         self.progress_window.show()
         
-    def handle_identify_speaker_result(self, data):
+    def _handle_identify_speaker_result(self, data):
         if data['success']:
             self.cache_speakers_path = data['speakers_dir']
             self.cache_nbest_path = data['nbest_dir']
@@ -358,7 +369,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.progress_window.hide()  # 出错时关闭进度条窗口
             QMessageBox.critical(self, "错误", f"说话人识别失败: {data.get('error', '未知错误')}")
 
-    def handle_identify_speaker_error(self, error_msg):
+    def _handle_identify_speaker_error(self, error_msg):
         self.progress_window.hide()  # 出错时关闭进度条窗口
         QMessageBox.critical(self, "错误", f"说话人识别请求失败: {error_msg}")
     
@@ -660,17 +671,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 settings = speaker_settings[speaker]
                
                 # 创建线程池工作线程
-                worker = TTSPoolWorker(text, settings["service"], settings["config"])
+                worker = TTSPoolWorker(self.backend ,text, settings["service"], settings["config"])
                 # 连接信号
                 worker.signals.finished.connect(
-                    lambda result, w=sentence_widget: self.handle_total_tts_result(result, w, total_tasks))
+                    lambda result, w=sentence_widget: self._handle_total_tts_result(result, w, total_tasks))
                 worker.signals.error.connect(
-                    lambda error, w=sentence_widget: self.handle_total_tts_error(error, w, total_tasks))
+                    lambda error, w=sentence_widget: self._handle_total_tts_error(error, w, total_tasks))
                 # 添加到线程池
                 self.active_workers.append(worker)
                 self.thread_pool.start(worker)
                 
-    def handle_total_tts_result(self, result, sentence_widget, total_tasks):
+    def _handle_total_tts_result(self, result, sentence_widget, total_tasks):
         """处理批量TTS生成结果"""
         if result['success']:
             # 获取音频URL并加载到对应的AudioPlayer
@@ -683,9 +694,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.completed_tasks += 1
         if self.completed_tasks == total_tasks:
             self.merge_all_audio()
-        
-        
-    def handle_total_tts_error(self, error, sentence_widget, total_tasks):
+         
+    def _handle_total_tts_error(self, error, sentence_widget, total_tasks):
         """处理批量TTS生成错误"""
         QMessageBox.critical(self, "生成错误", 
                            f"句子 {sentence_widget.sentence_index} 生成错误：{error}")
@@ -783,3 +793,63 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             
         except Exception as e:
             QMessageBox.critical(self, "保存失败", f"保存音频文件时出错：{str(e)}")
+            
+    '''------ Page3 ------'''
+    def setup_page3_connections(self):
+        # 创建自定义配置文件
+        self.profile = QWebEngineProfile("my_profile")
+        # 创建并设置请求拦截器
+        self.interceptor = RequestInterceptor()
+        self.profile.setUrlRequestInterceptor(self.interceptor)
+        
+        # 创建 WebEngineView 并使用自定义配置文件
+        self.web_view = QWebEngineView()
+        page = QWebEnginePage(self.profile, self.web_view)
+        self.web_view.setPage(page)
+        
+        # 将 web_view 添加到 widget 的布局中
+        layout = QVBoxLayout(self.webWidget)
+        layout.addWidget(self.web_view)
+        
+        # 连接按钮事件
+        self.webUrlConnectButton.clicked.connect(self.connect_web_url)
+        
+        # 连接设置变更事件
+        self.setSaveButton.clicked.connect(self.save_config)
+        
+        
+    def load_config(self):
+        """加载配置文件"""
+        try:
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                self.config = yaml.safe_load(f)
+                if self.config:
+                    self.backend = self.config.get('backend_url', 'http://localhost:10032').rstrip('/')
+                    self.threadsNumber = self.config.get('tts_threads', 1)
+                    self.backendUrl.setText(self.backend)
+                    self.spinBox.setValue(self.threadsNumber)
+        except Exception as e:
+            QMessageBox.warning(self, "警告", f"加载配置文件失败：{str(e)}")
+            
+    def save_config(self):
+        """保存配置到文件"""
+        try:
+            config = {
+                'backend_url': self.backendUrl.text(),
+                'tts_threads': self.spinBox.value()
+            }
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                yaml.safe_dump(config, f, allow_unicode=True)
+        except Exception as e:
+            QMessageBox.warning(self, "警告", f"保存配置文件失败：{str(e)}")
+            
+    def connect_web_url(self):
+        """连接到Web URL"""
+        try:
+            url = self.webUrl.text()
+            if not url.startswith(('http://', 'https://')):
+                url = 'http://' + url
+            self.web_view.load(QUrl(url))
+        except Exception as e:
+            QMessageBox.warning(self, "警告", f"连接失败：{str(e)}")
+    

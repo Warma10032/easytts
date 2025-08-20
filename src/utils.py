@@ -1,5 +1,6 @@
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal, QRunnable, QObject
+from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineUrlRequestInterceptor
 from pathlib import Path
 from tqdm import tqdm
 import time
@@ -10,14 +11,16 @@ class TTSWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
     
-    def __init__(self, text, service, config):
+    def __init__(self, backend, text, service, config):
         super().__init__()
+        self.backend = backend
         self.text = text
         self.service = service
         self.config = config
+        
     def run(self):
         try:
-            response = requests.post('http://127.0.0.1:10032/api/tts', 
+            response = requests.post(self.backend + '/api/tts', 
                                   json={"text": self.text, "service": self.service, "config": self.config})
             self.finished.emit(response.json())
         except Exception as e:
@@ -36,8 +39,9 @@ class TTSPoolWorker(QRunnable):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
     
-    def __init__(self, text, service, config):
+    def __init__(self, backend, text, service, config):
         super().__init__()
+        self.backend = backend
         self.text = text
         self.service = service
         self.config = config
@@ -45,7 +49,7 @@ class TTSPoolWorker(QRunnable):
     
     def run(self):
         try:
-            response = requests.post('http://127.0.0.1:10032/api/tts', 
+            response = requests.post(self.backend + '/api/tts', 
                                   json={"text": self.text, "service": self.service, "config": self.config})
             self.signals.finished.emit(response.json())
         except Exception as e:
@@ -56,8 +60,9 @@ class IdentifySpeakerWorker(QThread):
     error = pyqtSignal(str)
     progress = pyqtSignal(dict)  # 新增进度信号
     
-    def __init__(self, base_dir, pre_size, post_size):
+    def __init__(self, backend, base_dir, pre_size, post_size):
         super().__init__()
+        self.backend = backend
         self.base_dir = base_dir
         self.pre_size = pre_size
         self.post_size = post_size
@@ -85,7 +90,7 @@ class IdentifySpeakerWorker(QThread):
         try:
             # 确保WebSocket连接成功
             if not self.sio.connected:
-                self.sio.connect('http://localhost:10032', 
+                self.sio.connect(self.backend, 
                                wait_timeout=10,
                                socketio_path='socket.io')
                 
@@ -98,7 +103,7 @@ class IdentifySpeakerWorker(QThread):
                 self.sleep(0.1)
             
             # 发送API请求
-            response = requests.post('http://localhost:10032/api/identify-speaker', 
+            response = requests.post(self.backend + '/api/identify-speaker', 
                                   json={'base_dir': self.base_dir, 
                                        'pre_size': self.pre_size, 
                                        'post_size': self.post_size})
@@ -115,7 +120,6 @@ class IdentifySpeakerWorker(QThread):
                 self.sio.disconnect()
             self.finished.connect(self.deleteLater)
             self.error.connect(self.deleteLater)
-
 
 class WebSocketTqdm(tqdm):
     """
@@ -142,6 +146,17 @@ class WebSocketTqdm(tqdm):
                 'raw_output': self.__str__()
             })
 
+class RequestInterceptor(QWebEngineUrlRequestInterceptor):
+    def interceptRequest(self, info):
+        # 打印请求信息
+        print(f"请求URL: {info.requestUrl().toString()}")
+        print(f"请求方法: {info.requestMethod().data().decode()}")
+        print(f"资源类型: {info.resourceType()}")
+        print(f"导航类型: {info.navigationType()}")
+        print(f"发起者: {info.initiator()}")
+        print(f"一方URL: {info.firstPartyUrl().toString()}")
+        print("------------------------")
+    
 def get_text_from_file(input_file: str) -> str:
     def read_text_file(file_path):
         try:

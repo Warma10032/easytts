@@ -1,0 +1,3 @@
+backend_url: http://localhost:10032
+tts_threads: 2
+web_url: ''

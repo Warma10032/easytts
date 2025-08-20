@@ -76,7 +76,7 @@ class Ui_sentenceDisplay(object):
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.sentencePlyer.sizePolicy().hasHeightForWidth())
         self.sentencePlyer.setSizePolicy(sizePolicy)
-        self.sentencePlyer.setMinimumSize(QtCore.QSize(250, 0))
+        self.sentencePlyer.setMinimumSize(QtCore.QSize(0, 0))
         self.sentencePlyer.setMaximumSize(QtCore.QSize(250, 16777215))
         self.sentencePlyer.setObjectName("sentencePlyer")
         self.horizontalLayout_2.addWidget(self.sentencePlyer)
